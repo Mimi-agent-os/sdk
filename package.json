@@ -1,0 +1,48 @@
+{
+    "name": "@mimi-os/sdk",
+    "version": "0.1.0",
+    "description": "mimi-os agent runtime: its store, its one chat API, its tools, its socket to the gateway",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Mimi-agent-os/sdk.git"
+    },
+    "homepage": "https://github.com/Mimi-agent-os/sdk",
+    "bugs": "https://github.com/Mimi-agent-os/sdk/issues",
+    "type": "module",
+    "license": "Apache-2.0",
+    "engines": {
+        "node": ">=24"
+    },
+    "files": [
+        "dist"
+    ],
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./testing": {
+            "types": "./dist/testing/index.d.ts",
+            "default": "./dist/testing/index.js"
+        }
+    },
+    "scripts": {
+        "build": "pnpm run clean && tsc -p tsconfig.build.json",
+        "check": "tsc",
+        "test": "node --test \"test/**/*.test.ts\"",
+        "clean": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\""
+    },
+    "dependencies": {
+        "@dotenvx/dotenvx": "1.75.1",
+        "@mimi-os/protocol": "link:../protocol",
+        "@noble/curves": "2.4.0"
+    },
+    "devDependencies": {
+        "@types/node": "^25.6.2",
+        "typescript": "6.0.3"
+    },
+    "packageManager": "pnpm@10.34.5",
+    "publishConfig": {
+        "access": "public"
+    }
+}

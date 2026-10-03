@@ -1,0 +1,35 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: sdk
+      # sdk depends on link:../protocol and imports its dist, so protocol sits beside it, built first
+      - uses: actions/checkout@v4
+        with:
+          repository: Mimi-agent-os/protocol
+          path: protocol
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build protocol
+        working-directory: protocol
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: Install
+        working-directory: sdk
+        run: pnpm install --frozen-lockfile
+      - name: Verify
+        working-directory: sdk
+        run: pnpm check && pnpm test && pnpm build
