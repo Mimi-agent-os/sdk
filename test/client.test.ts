@@ -379,6 +379,40 @@ test("deadline expiry remains a timeout when an abort-aware tool denies", async 
     client.close();
 });
 
+test("an invoke without a deadline is never timed out here, and its whole result goes back", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const done = Promise.withResolvers<{ text: string }>();
+    let signal: AbortSignal | undefined;
+    const { client, sockets } = harness(
+        stubDispatch({
+            invoke: (_p, ctx) => {
+                signal = ctx.signal;
+                return done.promise;
+            },
+        }),
+    );
+    client.start();
+    const s = sockets[0]!;
+    await handshake(s);
+
+    s.deliver({ id: "inv-long", type: "invoke", payload: { tool: "slow", args: {} } });
+    await tick();
+    // runAll fires every pending timer whatever its delay: none may stand behind this invoke
+    t.mock.timers.runAll();
+    await tick();
+    assert.equal(signal?.aborted, false);
+    assert.equal(s.frames().some((f) => f.id === "inv-long"), false);
+
+    const big = "x".repeat(200_000);
+    done.resolve({ text: big });
+    await tick();
+    const reply = s.last();
+    assert.equal(reply.id, "inv-long");
+    assert.equal(reply.status, "ok");
+    assert.deepEqual(reply.payload, { text: big });
+    client.close();
+});
+
 test("an aborted approval request rejects without waiting for a later user decision", async () => {
     const { client, sockets } = harness(stubDispatch());
     client.start();

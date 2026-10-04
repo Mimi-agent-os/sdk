@@ -3,7 +3,8 @@
 import type { Message, ResultPayload, Tool, ToolCall, ToolSchema } from "@mimi-os/protocol";
 
 export interface ToolContext {
-    /** Aborts the tool the moment the invoke deadline passes or the gateway says stop. */
+    /** Aborts the tool when a deadline the gateway put on the request passes, or the connection to it
+     *  drops. A model's invoke carries no deadline by default, so the tool runs until it is done. */
     signal?: AbortSignal | undefined;
     /** Ask the user MID-EXECUTION; missing approver = denied, same deny-by-default rule as the gate. */
     approve?: ((label: string, detail: Record<string, unknown>) => Promise<boolean>) | undefined;
@@ -38,7 +39,9 @@ export const toolSchema = (t: ToolInstance): ToolSchema => {
     return { name: f.name, description: f.description, parameters: f.parameters, writes: t.writes === true, fold: t.fold === true };
 };
 
-/** Schema + run fn → a ToolInstance; size-capping belongs to the gateway, not here. */
+/** Schema + run fn → a ToolInstance. Its result reaches the model whole: neither side caps its size, only
+ *  the channel's 1 MiB message limit bounds it — the reply that carries it and the history event that
+ *  stores it each travel as one message, and a result too big for that is refused whole, never cut. */
 export function defineTool(
     name: string,
     description: string,
