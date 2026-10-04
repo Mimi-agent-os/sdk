@@ -328,7 +328,7 @@ export function channelSocket(options: ChannelSocketOptions): SocketLike {
         if (!closed) fail(new Error("socket error"));
     };
     ws.onclose = (event): void => {
-        // the gateway turns a key away with a bare close, so the step it stopped at is the only reason there is
+        // both refusals close with CLOSE_NOT_PAIRED; the step the handshake reached tells a refused pin (msg2 came) from another gateway's key (nothing came)
         if (wsOpened && self.readyState === 0) {
             fail(
                 received
