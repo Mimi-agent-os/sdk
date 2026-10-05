@@ -41,6 +41,7 @@ export function buildDispatch(ctx: DispatchCtx): Dispatch {
         const result = await tool.execute(args, {
             signal,
             from: extra.from,
+            session: extra.session,
             approve: async (label, detail) => {
                 if (ctx.unasked.has(toolName)) return true;
                 const payload: AskApprovePayload = { label, detail };

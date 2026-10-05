@@ -79,6 +79,19 @@ test("invoke (a normal model call) leaves ctx.from undefined — only a2a_invoke
     assert.deepEqual(result, { text: "none" });
 });
 
+test("a tool sees the chat its invoke came from as ctx.session; a room invoke and an a2a_invoke name none", async (t) => {
+    const echoSession: ToolInstance = {
+        definition: { type: "function", function: { name: "echo_session" } },
+        execute: (_args, ctx) => String(ctx?.session),
+    };
+    const dispatch = harness(t, [echoSession], ["echo_session"]);
+    const signal = new AbortController().signal;
+    assert.deepEqual(await dispatch.invoke({ tool: "echo_session", args: {}, session: 7 }, { signal }), { text: "7" });
+    assert.deepEqual(await dispatch.invoke({ tool: "echo_session", args: {} }, { signal }), { text: "undefined" });
+    const ok = await dispatch.a2aInvoke({ from: "peer", command: "echo_session", args: {} }, { signal });
+    assert.deepEqual(ok, { result: { text: "undefined" } });
+});
+
 test("invoke rejects a tool result that cannot be sent as JSON", async (t) => {
     const invalid: ToolInstance = {
         definition: { type: "function", function: { name: "invalid" } },

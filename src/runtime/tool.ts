@@ -1,6 +1,6 @@
 /** An executable tool: the schema the model sees plus the execute() the gateway's loop invokes. */
 
-import type { Message, ResultPayload, Tool, ToolCall, ToolSchema } from "@mimi-os/protocol";
+import type { Message, ResultPayload, SessionId, Tool, ToolCall, ToolSchema } from "@mimi-os/protocol";
 
 export interface ToolContext {
     /** Aborts the tool when a deadline the gateway put on the request passes, or the connection to it
@@ -10,6 +10,8 @@ export interface ToolContext {
     approve?: ((label: string, detail: Record<string, unknown>) => Promise<boolean>) | undefined;
     /** The calling agent's name, set only when this run came in through a2a_invoke; undefined for a normal model invoke. */
     from?: string | undefined;
+    /** The chat the invoke came from; undefined for a room turn, an a2a_invoke and a run from the agent's own code. */
+    session?: SessionId | undefined;
 }
 
 /** `text` is the projection the model reads; `data` is the machine channel a chain substitutes from — the model never sees `data`. */
