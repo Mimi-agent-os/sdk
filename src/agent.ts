@@ -83,7 +83,7 @@ export interface AskOptions {
     scope?: string;
     /** Reject the call if the gateway does not answer within this many ms; omitted = wait forever. */
     timeoutMs?: number;
-    /** Put this agent's own system prompt (persona, pack parts, date) in front, exactly as a turn builds it. */
+    /** Put this agent's own system prompt (persona, pack parts) in front, exactly as a turn builds it. It holds no clock: the messages say when it is. */
     withPrompt?: boolean;
 }
 
