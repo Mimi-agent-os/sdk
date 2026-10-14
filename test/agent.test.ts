@@ -164,7 +164,7 @@ test("a failed boot closes the store", async () => {
     try {
         await assert.rejects(
             runAgent({ dir, socket: () => new HandshakeSocket(), log: () => undefined }),
-            /Expected property name/,
+            /malformed JSON/,
         );
         const db = new DatabaseSync(dbFile(dataDir(dir)));
         try {

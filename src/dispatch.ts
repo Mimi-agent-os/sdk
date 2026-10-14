@@ -28,6 +28,8 @@ export interface DispatchCtx {
 
 // the owner's lists show 100 chats (pinned, then the owner's own ahead of delegation threads); the rest stay in agent.db, and one reply stays far under a channel frame
 const SESSION_LIST_MAX = 100;
+// the ceiling the 1 MiB channel used to impose on a tool result; it lives here because the gateway never caps one
+const TOOL_RESULT_MAX_BYTES = 1_044_480;
 
 export function buildDispatch(ctx: DispatchCtx): Dispatch {
     const { name, chat, tools } = ctx;
@@ -50,7 +52,15 @@ export function buildDispatch(ctx: DispatchCtx): Dispatch {
                 return answer.approved;
             },
         });
-        return toResultPayload(result);
+        const payload = toResultPayload(result);
+        const bytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
+        if (bytes > TOOL_RESULT_MAX_BYTES) {
+            throw new Error(
+                `the result of "${toolName}" is ${bytes} bytes, over the ${TOOL_RESULT_MAX_BYTES} one tool result ` +
+                    `may carry — it was refused whole. Ask for less at a time.`,
+            );
+        }
+        return payload;
     };
     return {
         invoke: async (p, reqCtx) => {

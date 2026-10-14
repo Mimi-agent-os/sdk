@@ -1,6 +1,6 @@
 /** The one event-write path: every append joins one hash chain in one transaction. */
 
-import { chainHash } from "@mimi-os/protocol";
+import { chainHash, MAX_EVENT_BYTES } from "@mimi-os/protocol";
 import type {
     EventBody,
     EventsAfterOkPayload,
@@ -38,7 +38,7 @@ export interface SessionPatch {
 }
 
 const EVENTS_PAGE_MAX = 1000;
-// The channel refuses a stream-0 message above 1 MiB: a page must leave room for the frame around it.
+// Keeps what a reader holds per page small; one event up to MAX_EVENT_BYTES still travels alone in its own page.
 const EVENTS_PAGE_BYTES = 512 * 1024;
 // seq, type, hash and createdAt, serialized around each event's stored payload text.
 const EVENT_ENVELOPE_BYTES = 160;
@@ -211,11 +211,15 @@ export class Chat {
             });
     }
 
-    /** Every event of a session, in seq order — the projection's raw material. */
-    events(session: SessionId): StoredEvent[] {
+    /** Every event of a session, in seq order — the projection's raw material. `images: false` strips message images inside SQLite; no hash is ever recomputed from such a read. */
+    events(session: SessionId, opts?: { images?: boolean }): StoredEvent[] {
+        const payload =
+            opts?.images === false
+                ? "CASE type WHEN 'message' THEN json_remove(payload, '$.images') ELSE payload END AS payload"
+                : "payload";
         return this.store.db
             .prepare(
-                `SELECT seq, type, payload, hash, created_at FROM events
+                `SELECT seq, type, ${payload}, hash, created_at FROM events
                  WHERE session_id = ? ORDER BY seq`,
             )
             .all(session)
@@ -226,28 +230,25 @@ export class Chat {
         const head = this.head(session);
         if (!head) throw new Error(`No session ${session}.`);
         const n = Math.max(1, Math.min(EVENTS_PAGE_MAX, Math.floor(limit ?? EVENTS_PAGE_MAX)));
-        // one row more than the page: its existence is the `more` answer
+        const after = Math.max(0, Math.floor(afterSeq));
+        // row by row: at most one row past the byte budget is ever read
         const rows = this.store.db
             .prepare(
                 `SELECT seq, type, payload, hash, created_at FROM events
                  WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?`,
             )
-            .all(session, Math.max(0, Math.floor(afterSeq)), n + 1);
-        let more = rows.length > n;
+            .iterate(session, after, n);
         const events: StoredEvent[] = [];
         let bytes = 0;
-        for (const row of more ? rows.slice(0, n) : rows) {
+        for (const row of rows) {
             // the stored payload text is what travels; the rest of the event is the fixed envelope around it
             const stored = (row as Record<string, unknown>)["payload"];
             bytes += Buffer.byteLength(String(stored), "utf8") + EVENT_ENVELOPE_BYTES;
             // the page must carry at least one event, however big that one is
-            if (bytes > EVENTS_PAGE_BYTES && events.length > 0) {
-                more = true;
-                break;
-            }
+            if (bytes > EVENTS_PAGE_BYTES && events.length > 0) break;
             events.push(toStored(row));
         }
-        return { events, head, more };
+        return { events, head, more: (events.at(-1)?.seq ?? after) < head.headSeq };
     }
 
     /** One event: INSERT + head/revision bump in a single transaction. */
@@ -268,6 +269,11 @@ export class Chat {
             assertNoDates(body.payload);
             const json = JSON.stringify(body.payload);
             if (json === undefined) throw new Error("Event payload must be JSON-serializable.");
+            // no events_after page could carry it back
+            const bytes = Buffer.byteLength(json, "utf8");
+            if (bytes > MAX_EVENT_BYTES) {
+                throw new Error(`Event payload is ${bytes} bytes, over the ${MAX_EVENT_BYTES} one event may carry.`);
+            }
             return { type: body.type, payload: JSON.parse(json), json };
         });
         if (bodies.length === 0) {

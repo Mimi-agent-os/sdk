@@ -108,6 +108,32 @@ test("invoke rejects a tool result that cannot be sent as JSON", async (t) => {
     );
 });
 
+test("a tool result over 1_044_480 serialized bytes is refused whole, for invoke and a2a_invoke alike", async (t) => {
+    let size = 1_044_480 - JSON.stringify({ text: "" }).length;
+    const sized: ToolInstance = {
+        definition: { type: "function", function: { name: "sized" } },
+        execute: () => ({ text: "x".repeat(size) }),
+    };
+    const dataful: ToolInstance = {
+        definition: { type: "function", function: { name: "dataful" } },
+        execute: () => ({ text: "", data: "x".repeat(1_044_480) }),
+    };
+    const dispatch = harness(t, [sized, dataful], ["sized"]);
+    const signal = new AbortController().signal;
+
+    assert.equal((await dispatch.invoke({ tool: "sized", args: {} }, { signal })).text.length, size);
+    size += 1;
+    await assert.rejects(
+        Promise.resolve(dispatch.invoke({ tool: "sized", args: {} }, { signal })),
+        /"sized" is 1044481 bytes, over the 1044480 one tool result may carry/,
+    );
+    await assert.rejects(
+        Promise.resolve(dispatch.a2aInvoke({ from: "peer", command: "sized", args: {} }, { signal })),
+        /1044481 bytes/,
+    );
+    await assert.rejects(Promise.resolve(dispatch.invoke({ tool: "dataful", args: {} }, { signal })), /over the 1044480/);
+});
+
 test("an unasked tool's mid-execution approval answers yes without reaching the gateway", async (t) => {
     const client = {
         askApprove: async () => {

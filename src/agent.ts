@@ -115,7 +115,7 @@ const DEFAULT_HOST = "127.0.0.1";
 const ENROLL_RETRY_MS = 30_000;
 // an editor's save is several fs events in a row; one describe answers them all
 const AVATAR_SETTLE_MS = 100;
-// describe travels as one stream-0 message the channel refuses above 1 MiB; the whole serialized payload shares this budget.
+// describe travels as one stream-0 message on every connect, far under the channel's 16 MiB; the whole serialized payload shares this budget.
 const DESCRIBE_JSON_MAX = 512 * 1024;
 
 /** No gateway.pub yet: wait for MIMI_INVITE in the agent's own .env, then pair and pin the key for good. */

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { SQLInputValue } from "node:sqlite";
 import { test } from "node:test";
 
-import { GENESIS_HASH, chainHash } from "@mimi-os/protocol";
-import type { EventBody, SessionHead } from "@mimi-os/protocol";
+import { GENESIS_HASH, MAX_AGENT_MESSAGE_BYTES, MAX_EVENT_BYTES, chainHash } from "@mimi-os/protocol";
+import type { EventBody, Message, SessionHead } from "@mimi-os/protocol";
 import { Chat } from "../src/store/chat.ts";
 import { openStore, type AgentStore } from "../src/store/store.ts";
 
@@ -279,5 +281,95 @@ test("one event bigger than the page budget is still returned alone", () => {
         chat.eventsAfter(id, page.events[0]!.seq, 500).events.map((e) => e.seq),
         [2],
     );
+    store.close();
+});
+
+test("a 2 MiB event is a page of its own, and more is answered from the head", () => {
+    const { store, chat } = fresh();
+    const id = chat.createSession();
+    const big = "z".repeat(2 * 1024 * 1024);
+    chat.append(id, msg("user", "before"));
+    chat.append(id, msg("assistant", big));
+    chat.append(id, msg("user", "after"));
+
+    // the byte cut: the small event goes alone rather than with the big one behind it
+    const first = chat.eventsAfter(id, 0);
+    assert.deepEqual(first.events.map((e) => e.seq), [1]);
+    assert.equal(first.more, true);
+
+    const alone = chat.eventsAfter(id, 1);
+    assert.deepEqual(alone.events.map((e) => e.seq), [2]);
+    assert.equal((alone.events[0]!.payload as Message).content, big);
+    assert.equal(alone.more, true);
+
+    const last = chat.eventsAfter(id, 2);
+    assert.deepEqual(last.events.map((e) => e.seq), [3]);
+    assert.equal(last.more, false);
+    assert.equal(chat.eventsAfter(id, 2, 1).more, false);
+    assert.equal(chat.eventsAfter(id, 1, 1).more, true);
+    assert.equal(chat.eventsAfter(id, 3).more, false);
+    store.close();
+});
+
+test("an events_after page reads at most one row past its byte budget", () => {
+    const { store, chat } = fresh();
+    const id = chat.createSession();
+    for (let i = 0; i < 120; i++) chat.append(id, msg("assistant", "y".repeat(20_000)));
+    let read = 0;
+    const prepare = store.db.prepare.bind(store.db);
+    store.db.prepare = (sql: string) => {
+        const statement = prepare(sql);
+        const iterate = statement.iterate.bind(statement);
+        statement.iterate = function* (...params: SQLInputValue[]) {
+            for (const row of iterate(...params)) {
+                read += 1;
+                yield row;
+            }
+        } as typeof statement.iterate;
+        return statement;
+    };
+
+    const page = chat.eventsAfter(id, 0, 500);
+    assert.ok(page.events.length > 1 && page.events.length < 120);
+    assert.equal(read, page.events.length + 1);
+    assert.equal(page.more, true);
+    store.close();
+});
+
+test("an event over MAX_EVENT_BYTES is refused whole; one at the cap comes back in one channel message", () => {
+    const { store, chat } = fresh();
+    const id = chat.createSession();
+    chat.append(id, msg("user", "one"));
+    const before = chat.head(id);
+    const atCap = "a".repeat(MAX_EVENT_BYTES - JSON.stringify(msg("assistant", "").payload).length);
+
+    assert.throws(
+        () => chat.appendMany(id, [msg("user", "two"), msg("assistant", `${atCap}a`)]),
+        new RegExp(`${MAX_EVENT_BYTES + 1} bytes, over the ${MAX_EVENT_BYTES}`),
+    );
+    // UTF-8 bytes, not characters
+    assert.throws(() => chat.append(id, msg("assistant", "é".repeat(MAX_EVENT_BYTES / 2))), /over the/);
+    assert.deepEqual(chat.head(id), before);
+
+    chat.append(id, msg("assistant", atCap));
+    const page = chat.eventsAfter(id, 1);
+    assert.deepEqual(page.events.map((e) => e.seq), [2]);
+    const reply = JSON.stringify({ id: randomUUID(), type: "events_after", status: "ok", payload: page });
+    assert.ok(Buffer.byteLength(reply, "utf8") <= MAX_AGENT_MESSAGE_BYTES);
+    store.close();
+});
+
+test("an image-free read strips message images in SQLite and leaves other payloads whole", () => {
+    const { store, chat } = fresh();
+    const id = chat.createSession();
+    const image = `data:image/png;base64,${"A".repeat(1000)}`;
+    chat.append(id, { type: "message", payload: { role: "user", content: "look", images: [image] } });
+    const notes = { images: [{ seq: 1, notes: ["a cat"] }] };
+    chat.append(id, { type: "compaction", payload: notes as never });
+
+    const [message, compaction] = chat.events(id, { images: false });
+    assert.deepEqual(message!.payload, { role: "user", content: "look" });
+    assert.deepEqual(compaction!.payload, notes);
+    assert.deepEqual((chat.events(id)[0]!.payload as Message).images, [image]);
     store.close();
 });

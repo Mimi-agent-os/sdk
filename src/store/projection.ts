@@ -24,8 +24,8 @@ export class Projection {
     }
 
     /** Compaction/truncate applied, parity untouched — what repairParity inspects. */
-    folded(session: SessionId): Message[] {
-        return foldEvents(this.chat.events(session)).map((e) => e.message);
+    folded(session: SessionId, opts?: { images?: boolean }): Message[] {
+        return foldEvents(this.chat.events(session, opts)).map((e) => e.message);
     }
 
     /** The prompt history: folded, then paired (in memory) so no request can carry a broken pair. */
@@ -35,7 +35,8 @@ export class Projection {
 
     /** Invariant #4, on disk: a died turn's unanswered tool_calls get error results appended as real events; idempotent. */
     repairParity(session: SessionId): number {
-        const missing = danglingTail(this.folded(session));
+        // runs over every chat at boot: tool-call parity needs no image bytes
+        const missing = danglingTail(this.folded(session, { images: false }));
         if (!missing.length) return 0;
         this.chat.appendMany(
             session,

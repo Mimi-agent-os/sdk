@@ -11,6 +11,7 @@ import {
     FLAG_DATA,
     FLAG_END,
     FLAG_RESET,
+    MAX_AGENT_MESSAGE_BYTES,
     PROTOCOL_VERSION,
     PairingResponder,
     ServerSession,
@@ -738,30 +739,46 @@ test("a failed transport write closes the channel instead of reusing advanced cr
     assert.equal(transport!.readyState, 3);
 });
 
-test("stream-0 messages are capped at the gateway's 1 MiB boundary in both directions", async () => {
+test("a 16 MiB stream-0 message passes both ways, and one byte more is refused both ways", async () => {
     const session = new ServerSession({ s: GATEWAY_SECRET, protocol: PROTOCOL_VERSION, lookup: () => "active" });
     let server: FakeBinarySocket | undefined;
+    let arrived = 0;
+    let ended = false;
     const sock = channelSocket({
         url: "ws://fake/channel",
         secret: AGENT_SECRET,
         gatewayPub: GATEWAY_PUB,
         WebSocket: fakeWebSocket((peer) => {
             server = peer;
-            wireServerSession(peer, session);
+            wireServerSession(peer, session, (frame) => {
+                arrived += frame.payload.length;
+                ended ||= (frame.flags & FLAG_END) !== 0;
+            });
         }),
     });
     await new Promise<void>((resolve) => {
         sock.onopen = () => resolve();
     });
 
-    const oversized = "x".repeat(1024 * 1024 + 1);
-    assert.throws(() => sock.send(oversized), /exceeds 1048576 bytes/);
+    const full = "x".repeat(MAX_AGENT_MESSAGE_BYTES);
+    sock.send(full);
+    assert.equal(arrived, MAX_AGENT_MESSAGE_BYTES);
+    assert.ok(ended);
+    const reply = new Promise<string>((resolve) => {
+        sock.onmessage = (ev) => resolve(ev.data as string);
+    });
+    sendStream0(session, server!, full);
+    assert.equal((await reply).length, MAX_AGENT_MESSAGE_BYTES);
+
+    const oversized = `${full}x`;
+    assert.throws(() => sock.send(oversized), /exceeds 16777216 bytes/);
+    assert.equal(sock.readyState, 1);
     const failed = new Promise<Error>((resolve) => {
         sock.onerror = (error) => resolve(error as Error);
     });
     sendStream0(session, server!, oversized);
 
-    assert.match((await failed).message, /exceeds 1048576 bytes/);
+    assert.match((await failed).message, /exceeds 16777216 bytes/);
     assert.equal(sock.readyState, 3);
 });
 

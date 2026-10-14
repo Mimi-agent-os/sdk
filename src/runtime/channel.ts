@@ -7,6 +7,7 @@ import {
     FLAG_DATA,
     FLAG_END,
     FLAG_RESET,
+    MAX_AGENT_MESSAGE_BYTES,
     PairingInitiator,
     PROTOCOL_VERSION,
     parseInviteUri,
@@ -53,8 +54,8 @@ export interface EnrollOptions {
 }
 
 const MAX_CHUNK = 16 * 1024;
-// The gateway closes stream-0 messages above 1 MiB; enforce the same boundary before buffering or sending them.
-const MAX_MESSAGE = 1024 * 1024;
+// The gateway closes an agent's stream-0 messages above 16 MiB; enforce the same boundary before buffering or sending them.
+const MAX_MESSAGE = MAX_AGENT_MESSAGE_BYTES;
 const PAIRING_TIMEOUT_MS = 15_000;
 const EMPTY = new Uint8Array(0);
 

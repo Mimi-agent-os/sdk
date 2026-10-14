@@ -106,3 +106,24 @@ test("an unpaired group in the MIDDLE is repaired in the projection, not by appe
     assert.equal(out[1]?.tool_call_id, "call_1");
     store.close();
 });
+
+test("boot repair reads image messages without their image bytes; the projection keeps them", () => {
+    const { store, chat, view, session } = fresh();
+    const image = `data:image/jpeg;base64,${"A".repeat(400_000)}`;
+    chat.append(session, msg("user", "look", { images: [image, image] }));
+    chat.append(session, calls("call_1"));
+    const read: unknown[] = [];
+    const events = chat.events.bind(chat);
+    chat.events = (s, opts) => {
+        const out = events(s, opts);
+        read.push(...out.map((e) => e.payload));
+        return out;
+    };
+
+    assert.equal(view.repairParity(session), 1);
+    assert.ok(read.length > 0);
+    assert.ok(!JSON.stringify(read).includes("base64"));
+    assert.deepEqual(view.project(session)[0]?.images, [image, image]);
+    assert.equal(view.repairParity(session), 0);
+    store.close();
+});

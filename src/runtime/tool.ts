@@ -41,9 +41,8 @@ export const toolSchema = (t: ToolInstance): ToolSchema => {
     return { name: f.name, description: f.description, parameters: f.parameters, writes: t.writes === true, fold: t.fold === true };
 };
 
-/** Schema + run fn → a ToolInstance. Its result reaches the model whole: neither side caps its size, only
- *  the channel's 1 MiB message limit bounds it — the reply that carries it and the history event that
- *  stores it each travel as one message, and a result too big for that is refused whole, never cut. */
+/** Schema + run fn → a ToolInstance. Its result reaches the model whole, never cut: the gateway caps nothing,
+ *  and the SDK refuses whole a result whose serialized { text, data } is over 1_044_480 bytes (dispatch.ts). */
 export function defineTool(
     name: string,
     description: string,
